@@ -1,0 +1,13 @@
+# Port-owned content mod for Super Factory Manager 4.34.0 (MPL-2.0,
+# TeamDman/SuperFactoryManager): the Factory Manager and the inventory cable,
+# their models, textures, recipes, loot tables, lang and creative tab. The
+# program language, the tick and the item moves are the native half in
+# ports/sfm/mixins.
+id = "sfm"
+name = "Super Factory Manager"
+version = "0.1.0"
+description = "Adds a certain magical factory manager to the game. Automation is within your grasp!"
+authors = ["TeamDman"]
+api = "0.2"
+side = "both"
+capabilities = ["registries"]

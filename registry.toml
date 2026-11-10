@@ -1,0 +1,49 @@
+id = "sfm"
+kind = "native-mod"
+name = "sfm"
+summary = "A Horizon port of sfm."
+description = """
+A port of [sfm](unknown) for Horizon.
+
+**Implemented so far**
+
+- In:** the Factory Manager and the plain inventory cable, the program text and
+- the label table (upstream keeps both on the program disk), a compiled SFML subset,
+- and the item movement one program tick makes over the manager's cable network.
+- `NAME "…"`, `EVERY <n> TICKS|SECONDS DO … END` (`SECONDS` = 20 ticks, offset 0,
+- `LOCAL` alignment), `INPUT`/`OUTPUT` with an optional quantity, `EACH`,
+- `RETAIN n [EACH]`, a resource list (`stone`, `minecraft:redstone`, `*ingot*`),
+- `EXCEPT …`, a label list (bare or quoted) and a `SIDE` list, and `FORGET`.
+- Defaults as upstream: `INPUT` = take all / leave none, `OUTPUT` = accept all /
+
+**Not yet ported**
+
+- Language: `IF`/`THEN`/`ELSE`, `REDSTONE TRIGGER`, `EMPTY SLOTS IN`, slot ranges,
+- `ROUND ROBIN`, per-block `EACH`, quoted regex patterns, `MAX`/`EACH` on retention
+- per id combination, `WITH` clauses, fluid/energy/chemical/redstone resources,
+- `SIDE` forms `LEFT/RIGHT/FRONT/BACK` (they parse and name no face here).
+- Content: disk, label gun, network tool, form/form_base, printing press, buffers,
+- water tank, XP goop and shard, all fancy/tough/tunnelled cables and every facade,
+- their recipes/loot/advancements, `c:` tag compatibility, the manager GUI,
+- the printing press and its data recipes.
+
+Original copyright and licence notices are kept in this repository. Pinned to
+Horizon 1d63e0a and horizon-mixins 5a64af93. Help with the remaining slices is
+welcome.
+"""
+authors = ["AdLf0208"]
+owners = ["AdLf0208"]
+owner_ids = [107615167]
+license = "MPL-2.0"
+source = "https://github.com/AdLf0208/sfm"
+icon = "icons/sfm.png"
+categories = ["utility"]
+tags = ["port", "horizon"]
+
+[[versions]]
+version = "0.1.0"
+published = "2026-11-10"
+game = "26.3"
+file = "sfm.hnmod"
+sha256 = "a90c4c5e95a0abffbe1c96d13b0e710fdf1dac40862a15141bb14639b3d0fbc9"
+changelog = "First release"
