@@ -1,0 +1,22 @@
+[package]
+# Port of Super Factory Manager 4.34.0 (TeamDman/SuperFactoryManager, MPL-2.0).
+# Minecraft Java 1.21.1 NeoForge; the port targets Horizon 26.3 at the pin in
+# horizon-mod.toml. Clean-room Rust rewrite from the mod's behaviour (FINDINGS.md).
+#
+# Cargo's name and version are not the mod's identity: horizon-mod.toml is.
+name = "sfm"
+version = "0.2.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Super Factory Manager for Horizon: a Factory Manager that runs SFML programs over its cable network"
+publish = false
+
+[lib]
+# The pure rules are `src/runtime.rs`; the crate root is `src/lib.rs`.
+path = "src/lib.rs"
+
+[dependencies]
+# The pinned SDK's API crate, fetched into .horizon/sdk/ by any `cargo horizon-mod`
+# command (the launcher builds against its own copy of the same build). This port
+# adds no registry dependency of its own.
+horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }

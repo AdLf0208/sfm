@@ -1,0 +1,8 @@
+{
+  "title": "Super Factory Manager",
+  "icon": "sfm:manager",
+  "items": [
+    "sfm:manager",
+    "sfm:cable"
+  ]
+}

@@ -1,0 +1,29 @@
+id = "sfm"
+name = "Super Factory Manager"
+version = "0.2.0"
+description = """A port of [Super Factory Manager](https://github.com/TeamDman/SuperFactoryManager) (MPL-2.0, by TeamDman and the SFM contributors) for Horizon. This slice is the Factory Manager and the plain inventory cable: the program text, the label table the upstream disk holds, a compiled subset of SFML, and the item movement one program tick makes over the cable network.
+
+Implemented: the Factory Manager and the plain inventory cable, with the carried models, textures and language entries, in the same package as the code; a compiled SFML subset (NAME, EVERY <n> TICKS|SECONDS DO … END with SECONDS = 20 ticks at offset 0 and LOCAL alignment, INPUT/OUTPUT with an optional quantity, EACH, RETAIN n [EACH], a resource list (stone, minecraft:redstone, *ingot*), EXCEPT …, a label list (bare or quoted), a SIDE list, and FORGET); upstream's defaults (INPUT takes all and leaves none, OUTPUT accepts all it is offered); and item movement between the labelled inventories of one cable network, one program tick at a time, where a label may sit anywhere but the block must be a cable of the manager's network or touch one.
+
+Not yet ported: the rest of the language (IF/THEN/ELSE, REDSTONE TRIGGER, EMPTY SLOTS IN, slot ranges, ROUND ROBIN, per-block EACH, quoted regex patterns, MAX/EACH on retention per id combination, WITH clauses, fluid/energy/chemical/redstone resources, and the SIDE forms LEFT/RIGHT/FRONT/BACK), and the rest of the content (the disk, label gun, network tool, form and form base, printing press, buffers, water tank, XP goop and shard, the fancy/tough/tunnelled cables, every facade, their recipes, loot and advancements, c: tag compatibility, and the Manager's and printing press's GUIs and data recipes).
+
+MPL-2.0, like the original; the full licence and the original copyright notice travel inside the package, and the complete corresponding source is in the port repository. Later slices cover the language and the remaining content."""
+authors = ["TeamDman", "AdLf0208"]
+# The original's licence: MPL-2.0 (TeamDman/SuperFactoryManager); its text and copyright
+# notice travel inside the package as LICENSE / LICENSE-NOTICE.md.
+# A native mod: Rust in src/, compiled by the launcher against the game build [native] pins,
+# beside data/ and assets/. The id is the resource namespace and the only identity: Cargo's
+# package name and version are not the mod's.
+api = "0.2"
+# The installation side, not the hook's: the manager and its tick run on the server, and single
+# player's integrated server belongs to the client installation, so "both".
+side = "both"
+# The one shared value every manifest carries ("May add blocks, items, mob effects and entity
+# types"): this mod declares the manager's block entity type and the manager and cable blocks
+# (the blocks themselves are carried content, data/sfm/horizon/block/).
+capabilities = ["registries"]
+
+[native]
+game = "26.3"
+horizon = "0b14f8acfd97fa2c750e42795249dcc981178ca4"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"

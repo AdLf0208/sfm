@@ -1,0 +1,10 @@
+{
+  "template": "minecraft:spawner",
+  "properties": {
+    "hardness": 2.0,
+    "explosion_resistance": 0.0,
+    "requires_tool": false,
+    "sounds": "minecraft:iron_block"
+  },
+  "item": true
+}
