@@ -1,0 +1,14 @@
+{
+  "recipe": {
+    "file": "data/sfm/recipe/cable.json",
+    "expect": {
+      "id": "sfm:cable",
+      "count": 16
+    },
+    "consume": "minecraft:black_dye"
+  },
+  "loot": {
+    "block": "sfm:cable",
+    "expect": "sfm:cable"
+  }
+}

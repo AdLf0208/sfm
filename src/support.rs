@@ -20,7 +20,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use crate::runtime::{Labelled, Move, ParseError, Pos, Program, Slot, Trigger, World, due, plan};
+use crate::runtime::{
+    Labelled, MAX_NETWORK_VISITS, Move, ParseError, Pos, Program, Slot, Trigger, World,
+    diagnostics_permitted, due, plan, settle, walk_members,
+};
 use mod_api::{
     BlockEntityPart, BlockEntityTickEvent, BlockEntityTicksEvent, BlockKey, BlockPart, Capability,
     Command, CommandArgumentValue, CommandInvocation, Compound, Direction, Flow, Host,
@@ -239,63 +242,55 @@ fn is_block(host: &dyn Host, level: LevelRef, pos: Pos, key: &OnceLock<BlockKey>
 /// blocks touching them. Upstream's `isAdjacentToCable` refuses everything else, so a
 /// labelled chest with no cable beside it is invisible.
 fn network(host: &dyn Host, level: LevelRef, manager: Pos) -> Vec<Pos> {
-    let mut members: Vec<Pos> = vec![manager];
-    let mut index = 0;
-    while index < members.len() {
-        let current = members[index];
-        index += 1;
-        for direction in Direction::ALL {
-            let beside = step(current, direction);
-            if members.contains(&beside) {
-                continue;
-            }
-            if is_member(host, level, beside) {
-                members.push(beside);
-            }
-        }
-    }
-    let mut reachable = members.clone();
+    // A set walk with a visit budget: the membership test is asked once per position and a
+    // player-built network cannot turn one tick into an unbounded read (the review finding).
+    let members = walk_members(manager, MAX_NETWORK_VISITS, |pos| {
+        is_member(host, level, pos)
+    });
+    let mut reachable: std::collections::BTreeSet<Pos> = std::collections::BTreeSet::new();
     for member in &members {
+        reachable.insert(*member);
         for direction in Direction::ALL {
-            let beside = step(*member, direction);
-            if !reachable.contains(&beside) {
-                reachable.push(beside);
-            }
+            reachable.insert(step(*member, direction));
         }
     }
-    reachable.sort_unstable();
-    reachable
+    reachable.into_iter().collect()
 }
 
 /// The world one program tick sees: what the network reaches, the manager's labels, and the
 /// slots of every labelled container among them.
 fn snapshot(host: &mut dyn ServerHost, level: LevelRef, pos: Pos, labels: &[Labelled]) -> World {
     let reachable = network(&*host, level, pos);
+    let reachable_set: std::collections::BTreeSet<Pos> = reachable.iter().copied().collect();
     let mut slots: Vec<Slot> = Vec::new();
-    let mut seen: Vec<Pos> = Vec::new();
+    let mut seen: std::collections::BTreeSet<Pos> = std::collections::BTreeSet::new();
     for entry in labels {
-        if !reachable.contains(&entry.pos) || seen.contains(&entry.pos) {
+        if !reachable_set.contains(&entry.pos) || !seen.insert(entry.pos) {
             continue;
         }
-        seen.push(entry.pos);
         for side in 0..6usize {
             let direction = Direction::ALL[side];
             let Some(handler) = level.capability(host, &ITEMS, entry.pos, Some(direction)) else {
                 continue;
             };
             for index in 0..handler.size(host) {
-                let Some(resource) = handler.resource(host, index) else {
-                    continue;
-                };
-                // Every slot this side-filtered handler lists is one the side reaches; the
-                // extract below is the engine's last word on taking it.
+                // Every slot the side reaches is recorded, empty ones included: an empty
+                // destination slot is exactly what an OUTPUT needs (its side is otherwise
+                // invisible, so a program could not fill a fresh chest). The item of an empty
+                // slot is the empty id, which matches no filter and is skipped by every gather.
+                let resource = handler.resource(host, index);
+                let item = resource
+                    .as_ref()
+                    .map(|resource| resource.item().id(&*host))
+                    .unwrap_or_default();
+                let count = u64::from(handler.amount(host, index));
                 slots.push(Slot {
                     pos: entry.pos,
                     side: side as u8,
                     index,
-                    item: resource.item().id(&*host),
-                    count: u64::from(handler.amount(host, index)),
-                    can_take: true,
+                    item,
+                    count,
+                    can_take: resource.is_some() && count > 0,
                 });
             }
         }
@@ -314,6 +309,9 @@ fn snapshot(host: &mut dyn ServerHost, level: LevelRef, pos: Pos, labels: &[Labe
 
 /// Runs the plan's moves in one transaction per program tick: what a target refuses goes
 /// back into the source slot, so a move never loses an item. Answers how many items moved.
+///
+/// A remainder the source can no longer take aborts the whole tick: [`settle`] answers `Err`,
+/// the transaction rolls back, and nothing leaves any source (the review finding).
 fn execute(host: &mut dyn ServerHost, level: LevelRef, moves: &[Move]) -> u64 {
     if moves.is_empty() {
         return 0;
@@ -321,7 +319,7 @@ fn execute(host: &mut dyn ServerHost, level: LevelRef, moves: &[Move]) -> u64 {
     host.transaction(|host, tx| {
         let mut moved = 0u64;
         for step in moves {
-            moved += run_move(host, tx, level, step);
+            moved += run_move(host, tx, level, step)?;
         }
         Ok::<u64, ()>(moved)
     })
@@ -329,33 +327,40 @@ fn execute(host: &mut dyn ServerHost, level: LevelRef, moves: &[Move]) -> u64 {
 }
 
 /// One move: up to `step.max` of `step.item` out of the source side into the target side.
-fn run_move(host: &mut dyn ServerHost, tx: &Transaction, level: LevelRef, step: &Move) -> u64 {
+fn run_move(
+    host: &mut dyn ServerHost,
+    tx: &Transaction,
+    level: LevelRef,
+    step: &Move,
+) -> Result<u64, ()> {
     let max = u32::try_from(step.max).unwrap_or(u32::MAX);
     if max == 0 {
-        return 0;
+        return Ok(0);
     }
     let from = Direction::ALL[usize::from(step.from_side)];
     let to = Direction::ALL[usize::from(step.to_side)];
     let Some(source) = level.capability(host, &ITEMS, step.from, Some(from)) else {
-        return 0;
+        return Ok(0);
     };
     let Some((index, resource)) = first_of(host, &source, &step.item) else {
-        return 0;
+        return Ok(0);
     };
     let Some(target) = level.capability(host, &ITEMS, step.to, Some(to)) else {
-        return 0;
+        return Ok(0);
     };
     let taken = source.extract(host, tx, index, &resource, max);
     if taken == 0 {
-        return 0;
+        return Ok(0);
     }
     let put = target.insert_any(host, tx, &resource, taken);
-    if put < taken {
-        // Give the refused part back: the slot it came from has room for it again, and the
-        // whole program tick is one transaction.
-        let _ = source.insert(host, tx, index, &resource, taken - put);
+    if put == taken {
+        return Ok(u64::from(put));
     }
-    u64::from(put)
+    // Give the refused part back: the slot it came from has room for it again, and the whole
+    // program tick is one transaction. A source that cannot take it back is a lost item, so
+    // the tick is rolled back instead of committed.
+    let returned = source.insert(host, tx, index, &resource, taken - put);
+    Ok(u64::from(settle(taken, put, returned).map_err(|_| ())?))
 }
 
 /// The first slot of `handler` holding `item`, and the resource it holds.
@@ -429,6 +434,12 @@ pub(crate) fn run_command(host: &mut dyn ServerHost, event: &RunModCommandEvent<
     };
     if !manager_at(host, level, pos) {
         feedback(host, format!("no {MANAGER} at {}", format_pos(pos)));
+        return Flow::Cancel;
+    }
+    // `show` and `labels` report the manager's counters and its label table, which are its
+    // owner's build, so they are a nearby read or an operator's, not a remote probe.
+    if matches!(subcommand, "show" | "labels") && !diagnostics_allowed(host, pos) {
+        feedback(host, INFO_DENIED);
         return Flow::Cancel;
     }
     match subcommand {
@@ -535,6 +546,31 @@ pub(crate) fn run_command(host: &mut dyn ServerHost, event: &RunModCommandEvent<
     Flow::Cancel
 }
 
+/// The refusal `/sfm show` and `/sfm labels` answer a source without reach or permission.
+const INFO_DENIED: &str =
+    "sfm: too far away; stand within 6 blocks of the manager or ask an operator";
+
+/// Whether the command's source may read a manager at `pos`: the acting player needs reach or
+/// an operator's permission; the console may read anywhere.
+fn diagnostics_allowed(host: &dyn ServerHost, pos: Pos) -> bool {
+    let Some(player) = host.players().acting_player() else {
+        return diagnostics_permitted(None, None);
+    };
+    let permission = player.permission_level(host);
+    let distance = player
+        .entity()
+        .distance_to_sqr(
+            host,
+            [
+                f64::from(pos[0]) + 0.5,
+                f64::from(pos[1]) + 0.5,
+                f64::from(pos[2]) + 0.5,
+            ],
+        )
+        .map(f64::sqrt);
+    diagnostics_permitted(permission, distance)
+}
+
 /// Whether `pos` holds the manager block with its block entity.
 fn manager_at(host: &dyn ServerHost, level: LevelRef, pos: Pos) -> bool {
     is_block(host, level, pos, &MANAGER_KEY) && host.block_entity(level, pos).is_some()
@@ -578,6 +614,10 @@ fn show(host: &mut dyn ServerHost, level: LevelRef, pos: Pos) {
     };
     let text = program_text(&data);
     let labels = read_labels(&data);
+    // Diagnostics for the harness: what the network reaches and how many slots it saw.
+    let world = snapshot(host, level, pos, &labels);
+    let reachable = world.reachable.len();
+    let slots = world.slots.len();
     let hash = hash_text(&text);
     let (entry, program) = {
         let mut guard = state();
@@ -608,7 +648,7 @@ fn show(host: &mut dyn ServerHost, level: LevelRef, pos: Pos) {
     feedback(
         host,
         format!(
-            "SFM pos={} tick={} state={} triggers={} labels={} fired={} moved={} moves={}",
+            "SFM pos={} tick={} state={} triggers={} labels={} fired={} moved={} moves={} reachable={reachable} slots={slots}",
             format_pos(pos),
             entry.tick,
             state_word,

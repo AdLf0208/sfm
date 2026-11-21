@@ -729,6 +729,103 @@ pub fn plan(trigger: &Trigger, world: &World) -> Vec<Move> {
     moves
 }
 
+// ---------------------------------------------------------------------------
+// The network walk, the move's settlement and the diagnostics gate
+// ---------------------------------------------------------------------------
+
+/// The six neighbour offsets, in vanilla's `Direction.values()` order.
+pub const FACE_OFFSETS: [Pos; 6] = [
+    [0, -1, 0],
+    [0, 1, 0],
+    [0, 0, -1],
+    [0, 0, 1],
+    [-1, 0, 0],
+    [1, 0, 0],
+];
+
+/// One cable walk's visit budget: the most members a single traversal reads. Players extend a
+/// manager's network with craftable cable, so its size is not ours to trust; the walk stops at
+/// the budget and the caller sees the part it reached.
+pub const MAX_NETWORK_VISITS: usize = 4_096;
+
+/// The positions `start`'s network reaches by six-way adjacency, up to `budget` visited members,
+/// in visit order. `is_member` answers whether a position is part of the network, and is asked
+/// once per position thanks to the set.
+#[must_use]
+pub fn walk_members(start: Pos, budget: usize, is_member: impl Fn(Pos) -> bool) -> Vec<Pos> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut order = Vec::new();
+    if budget == 0 {
+        return order;
+    }
+    seen.insert(start);
+    order.push(start);
+    let mut index = 0;
+    while index < order.len() {
+        let current = order[index];
+        index += 1;
+        for offset in FACE_OFFSETS {
+            if order.len() >= budget {
+                return order;
+            }
+            let beside = [
+                current[0] + offset[0],
+                current[1] + offset[1],
+                current[2] + offset[2],
+            ];
+            if is_member(beside) && seen.insert(beside) {
+                order.push(beside);
+            }
+        }
+    }
+    order
+}
+
+/// Why a move cannot be committed: the source refused the part the target did not take, so
+/// committing would destroy those items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemainderLost;
+
+impl std::fmt::Display for RemainderLost {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the source refused the remainder of an extraction")
+    }
+}
+
+impl std::error::Error for RemainderLost {}
+
+/// What a move's extraction settled to. `taken` left the source, `inserted` was accepted by the
+/// target and `returned` went back into the source slot. `Ok` is what actually moved;
+/// `RemainderLost` means the caller must roll the transaction back — committing it would
+/// destroy those items (the review finding).
+pub fn settle(taken: u32, inserted: u32, returned: u32) -> Result<u32, RemainderLost> {
+    if inserted >= taken || inserted.saturating_add(returned) >= taken {
+        Ok(inserted.min(taken))
+    } else {
+        Err(RemainderLost)
+    }
+}
+
+/// `Commands.LEVEL_GAMEMASTERS`: an operator may read a manager anywhere.
+pub const DIAGNOSTIC_PERMISSION: u8 = 2;
+
+/// The reach that makes a diagnostic the ordinary interaction path (the server's block reach,
+/// rounded up: 4.5 standing, 5 in creative).
+pub const DIAGNOSTIC_REACH: f64 = 6.0;
+
+/// Whether a command source may read a manager's diagnostics: an operator anywhere, the console
+/// anywhere, everyone else only within reach. An unreadable distance is not close.
+#[must_use]
+pub fn diagnostics_permitted(permission: Option<u8>, distance: Option<f64>) -> bool {
+    match permission {
+        None => true,
+        Some(level) if level >= DIAGNOSTIC_PERMISSION => true,
+        Some(_) => {
+            distance.is_some_and(|distance| distance.is_finite() && distance <= DIAGNOSTIC_REACH)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1166,5 +1263,68 @@ mod tests {
         assert!(empty.is_empty());
         let tick = trigger("EVERY 20 TICKS DO\nEND");
         assert!(plan(&tick, &World::default()).is_empty());
+    }
+
+    /// The review finding: the cable walk read its membership list linearly and had no visit
+    /// budget, so a configured manager's growing network turned one tick into quadratic work.
+    #[test]
+    fn the_cable_walk_is_a_set_walk_with_a_budget() {
+        // A line of 1,000 cables east of the start.
+        let is_member = |pos: Pos| (0..=1_000).contains(&pos[0]) && pos[1] == 0 && pos[2] == 0;
+        let whole = walk_members(at(0), 2_000, is_member);
+        assert_eq!(whole.len(), 1_001, "a small network is walked whole");
+        assert_eq!(whole.first(), Some(&at(0)));
+        assert!(whole.contains(&at(1_000)));
+
+        let bounded = walk_members(at(0), 10, is_member);
+        assert_eq!(bounded.len(), 10, "the budget caps the visited members");
+        assert!(!bounded.contains(&at(1_000)), "the far end is not reached");
+        assert!(walk_members(at(0), 0, is_member).is_empty(), "no visits");
+        // Six-way adjacency, not just east/west.
+        let plus = walk_members(at(0), 10, |pos| pos == at(0) || pos == [0, 1, 0]);
+        assert_eq!(plus, vec![at(0), [0, 1, 0]]);
+    }
+
+    /// The review finding: an extraction the target only partly took committed the loss when
+    /// the source could not take the remainder back.
+    #[test]
+    fn a_move_settles_to_what_the_target_took_and_rolls_back_a_lost_remainder() {
+        assert_eq!(settle(10, 10, 0), Ok(10), "everything accepted");
+        assert_eq!(settle(10, 4, 6), Ok(4), "the remainder went back");
+        assert_eq!(settle(10, 0, 10), Ok(0), "nothing accepted, all back");
+        assert_eq!(
+            settle(10, 4, 0),
+            Err(RemainderLost),
+            "the remainder is lost"
+        );
+        assert_eq!(
+            settle(10, 4, 5),
+            Err(RemainderLost),
+            "a partial return is a loss"
+        );
+    }
+
+    /// The review finding: `/sfm show` and `/sfm labels` disclosed counters and label names at
+    /// arbitrary coordinates. A source needs reach or an operator's permission; the console
+    /// may read anywhere, and an unreadable distance is refused.
+    #[test]
+    fn a_manager_diagnostic_needs_reach_or_permission() {
+        assert!(!diagnostics_permitted(
+            Some(0),
+            Some(DIAGNOSTIC_REACH + 1.0)
+        ));
+        assert!(diagnostics_permitted(Some(0), Some(DIAGNOSTIC_REACH)));
+        assert!(diagnostics_permitted(Some(0), Some(2.0)), "at the manager");
+        assert!(diagnostics_permitted(
+            Some(DIAGNOSTIC_PERMISSION),
+            Some(500.0)
+        ));
+        assert!(diagnostics_permitted(None, Some(500.0)), "the console");
+        assert!(diagnostics_permitted(None, None), "the console");
+        assert!(!diagnostics_permitted(Some(0), None), "unreadable");
+        assert!(
+            !diagnostics_permitted(Some(1), Some(f64::NAN)),
+            "not a distance"
+        );
     }
 }

@@ -89,3 +89,17 @@ identical to `content/sfm.hmod`, 7,569 B).
 ```sh
 python3 ports/tools/check-e2e-logs.py sfm --strict   # every log ends with a verdict
 ```
+
+## 26.3 dialect sweep (2026-11-21) — 0.2.2
+
+| Check | Command | Result |
+|---|---|---|
+| static dialect | `python3 ports/tools/check_261_dialect.py sfm.hmod` | exit 0; pre-fix package exit 1 (`../_shared/evidence/sfm/dialect-check-red.log`) |
+| tests | `cargo test --offline` | exit 0 (`dialect-test.log`) |
+| package | `cargo horizon-mod build` twice after `rm -f Cargo.lock` | `cmp`-identical, built against 0a875da |
+| registry check | `cargo horizon-mod check sfm.hmod` | **48,954 B**, SHA-256 `a7ba227a4a9fe66f7f077168a87511ec8bfb363bebe9dd104437bdab21679f33`, exit 0 |
+| fits the pin | `cargo horizon-mod fits sfm.hmod --build 0a875da` | `0a875da  made for`, exit 0 |
+| the gate | `python3 ports/tools/verify-sdk-package.py sfm` | 1/1 |
+| in game | `tools/e2e-dialect.sh` | `PASS` + `EXIT:0`; `SELFTEST=1` `FAIL` + `EXIT:1`; `check-e2e-logs.py sfm --strict` exit 0 |
+
+Changed: 2 recipes + 2 loot tables. Proof: cable crafts 16 and drops 1; pre-fix red. Full record in [`notes.md`](notes.md) §"26.3 dialect sweep".

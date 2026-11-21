@@ -2,15 +2,9 @@
   "type": "minecraft:crafting_shaped",
   "category": "misc",
   "key": {
-    "A": {
-      "item": "minecraft:chest"
-    },
-    "B": {
-      "item": "sfm:cable"
-    },
-    "C": {
-      "item": "minecraft:repeater"
-    }
+    "A": "minecraft:chest",
+    "B": "sfm:cable",
+    "C": "minecraft:repeater"
   },
   "pattern": [
     "ABA",

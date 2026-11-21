@@ -5,7 +5,7 @@
 #
 # Cargo's name and version are not the mod's identity: horizon-mod.toml is.
 name = "sfm"
-version = "0.2.0"
+version = "0.2.2"
 edition = "2024"
 license = "MPL-2.0"
 description = "Super Factory Manager for Horizon: a Factory Manager that runs SFML programs over its cable network"

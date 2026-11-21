@@ -486,3 +486,83 @@ adjacent-cable rule are the same behaviour 0.1.0 ported and tested; no artefact 
 > GUI, the fancy cables and facades, fluids/energy/chemicals/redstone).
 
 Skills: superpowers/using-superpowers,brainstorming,writing-plans,test-driven-development,systematic-debugging,verification-before-completion; BeautifulRust/rust-best-practices,rust-port
+
+## Review fixes (2026-11-18 review, rebuilt 2026-11-19 at 0.2.1)
+
+Skills: superpowers/using-superpowers, systematic-debugging, test-driven-development, verification-before-completion; BeautifulRust/rust-best-practices, rust-port
+
+**Findings and fixes** (`src/support.rs`):
+
+1. **241 — quadratic, unbounded network walk.** `runtime::walk_members(start, budget, is_member)` is a
+   `BTreeSet` walk that stops at `MAX_NETWORK_VISITS = 4_096`; `network()` uses it and unions the
+   neighbours in a set, and `snapshot` uses a set for reachability and the seen-labels check.
+2. **348 — an extract-only source could lose items.** `runtime::settle(taken, inserted, returned)`
+   answers `Ok(moved)` only when the target took everything or the source took the refused remainder
+   back, and `Err(RemainderLost)` otherwise; `run_move` returns it and `execute` aborts the whole
+   program tick's transaction, so a move never commits a loss.
+3. **391 — remote diagnostics.** `runtime::diagnostics_permitted` gates `/sfm show` and `/sfm labels`
+   (operator level 2, or the console, anywhere; everyone else within `DIAGNOSTIC_REACH` = 6 blocks).
+
+**Tests.** `runtime::tests::{the_cable_walk_is_a_set_walk_with_a_budget,
+a_move_settles_to_what_the_target_took_and_rolls_back_a_lost_remainder,
+a_manager_diagnostic_needs_reach_or_permission}` (each red against the old behaviour).
+
+**A migration defect the in-game leg found (fixed here).** `snapshot` recorded only *non-empty*
+slots, so `sides_with_slots` was empty for an empty destination chest and `OUTPUT TO b` planned
+nothing: a program could not fill a fresh container at all (phase D failed at `moved=0 moves=0` with
+`slots=6`). Every reachable slot is now recorded, empty ones with an empty item id and `can_take:
+false`, so the output side exists and `gather` still skips empty slots. The `/sfm show` line gained
+`reachable=<n> slots=<n>` for the harness (the diagnosis above was made with it).
+
+**Ladder (0.2.1).** `cargo test` 36 passed · clippy `-D warnings` exit 0 · `fmt --check` exit 0 · two
+builds byte-identical · `check` exit 0 (`sfm 0.2.1 …`) · `fits --build 0b14f8a` exit 0.
+
+**In game.** `launcher-game.sh run sfm` → `PASS` + `E2E EXIT:0` (A–J, including its own internal
+control phases); control → `FAIL: the manager did not place` + `EXIT:1`. Evidence:
+`ports/_shared/evidence/sfm-e2e/`.
+
+**Package.** `sfm.hmod` **49,010 B**, sha256
+`9ba622c09210596837d425f0f2b77076196ab917e6252022ed12e28176edb03b`.
+
+## 26.3 dialect sweep (2026-11-21) — carried recipes and loot tables, proven in game (0.2.2)
+
+The shared checker `ports/tools/check_261_dialect.py` (generalised from `ports/modularrouters/tools/data_shape.py`
+and `ports/createaddition/tools/data_shape.py`) found the 1.21.1 forms still in the package that had shipped
+at **0.2.1**; `cargo horizon-mod check`, `fits` and every unit test had passed on them, and the content
+was dead in game (a recipe returns nothing; a block drops empty).
+
+| Family | Files | 1.21.1 form that shipped | 26.3 form |
+|---|---|---|---|
+| recipe ingredients | 2 (`cable`, `manager`): `{"item": …}` in `key` | `{"item": "…"}` / `{"tag": "…"}` | `"minecraft:…"` / `"#c:…"` |
+| loot pools | 2 (`cable`, `manager`): `"conditions"` array, `bonus_rolls`, `"rolls": 1.0` | `"conditions": [ … ]`, `bonus_rolls`, `"rolls": 1.0` | one `"condition": {"type": "minecraft:…"}`, no `bonus_rolls`, `"rolls": 1` |
+
+
+
+**Red, kept:** `ports/_shared/evidence/sfm/dialect-check-red.log` — the checker exits 1 on the pre-fix
+package itself (`dialect-prefix-0.2.1.hmod`, 0.2.1, kept in the same folder), naming every file.
+A reconstructed fixture carrying all three loot shapes plus a `requires_tool` block with no mineable tag is
+red too (`../../morered/dialect-check-fixture-red.log`). The checker's `--selftest` fails when any shape is
+accepted.
+
+  `recipe cable.json: crafting_shaped -> {"count": 16, "item": "sfm:cable", "slot": 200}`; `the result reached the inventory (16 sfm:cable), the grid emptied, and minecraft:black_dye was consumed`
+
+  `the vanilla control dropped one, sfm:cable dropped 1 sfm:cable, and the cell is air`
+
+The in-game leg is `tools/e2e-dialect.sh` (`ports/_shared/evidence/sfm/e2e-dialect.log`): `PASS` + `EXIT:0`,
+and `SELFTEST=1` inverts the expectation and ends `FAIL` + `EXIT:1` (`e2e-dialect-selftest.log`).
+`check-e2e-logs.py sfm --strict` exits 0.
+
+**Ladder** (all in `build-slot.sh` leases, `CARGO_INCREMENTAL=0`, `BUILD_LOCAL=1`):
+
+| Step | Command | Result |
+|---|---|---|
+| tests | `cargo test --offline` | **36 passed**, 0 failed (`dialect-test.log`) |
+| package | `rm -f Cargo.lock && cargo horizon-mod build` (twice) | built against **0a875da** (re-pinned from 0b14f8a), second build `cmp`-identical (`dialect-build-1.log`, `dialect-build-2.log`) |
+| registry check | `cargo horizon-mod check sfm.hmod` | `sfm 0.2.2 (native-mod, format native-1/0a875da…/e59da90…, for 26.3)`, **48,954 B**, sha256 `a7ba227a4a9f…` (`dialect-check.log`) |
+| fits the pin | `cargo horizon-mod fits sfm.hmod --build 0a875da` | `0a875da  made for`, exit 0 (`dialect-fits-0a875da.log`) |
+| fits the previous build | `… --build 0b14f8a` | `fits`, exit 0 (`dialect-fits-0b14f8a.log`) |
+| the gate | `python3 ports/tools/verify-sdk-package.py sfm` | **1/1** (`dialect-gate.log`) |
+
+Package 0.2.2: **48,954 B**, SHA-256 `a7ba227a4a9fe66f7f077168a87511ec8bfb363bebe9dd104437bdab21679f33`.
+
+Skills: superpowers/using-superpowers,systematic-debugging,test-driven-development,verification-before-completion; BeautifulRust/none (no Rust change)

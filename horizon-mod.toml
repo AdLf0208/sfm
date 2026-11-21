@@ -1,6 +1,6 @@
 id = "sfm"
 name = "Super Factory Manager"
-version = "0.2.0"
+version = "0.2.2"
 description = """A port of [Super Factory Manager](https://github.com/TeamDman/SuperFactoryManager) (MPL-2.0, by TeamDman and the SFM contributors) for Horizon. This slice is the Factory Manager and the plain inventory cable: the program text, the label table the upstream disk holds, a compiled subset of SFML, and the item movement one program tick makes over the cable network.
 
 Implemented: the Factory Manager and the plain inventory cable, with the carried models, textures and language entries, in the same package as the code; a compiled SFML subset (NAME, EVERY <n> TICKS|SECONDS DO … END with SECONDS = 20 ticks at offset 0 and LOCAL alignment, INPUT/OUTPUT with an optional quantity, EACH, RETAIN n [EACH], a resource list (stone, minecraft:redstone, *ingot*), EXCEPT …, a label list (bare or quoted), a SIDE list, and FORGET); upstream's defaults (INPUT takes all and leaves none, OUTPUT accepts all it is offered); and item movement between the labelled inventories of one cable network, one program tick at a time, where a label may sit anywhere but the block must be a cable of the manager's network or touch one.
@@ -25,5 +25,5 @@ capabilities = ["registries"]
 
 [native]
 game = "26.3"
-horizon = "0b14f8acfd97fa2c750e42795249dcc981178ca4"
+horizon = "0a875da91dbb0fdcb7ba8c42c11341aa229af51a"
 mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"

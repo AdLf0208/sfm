@@ -1,19 +1,15 @@
-# Super Factory Manager ( SFM ) — a Horizon port
+# Super Factory Manager for Horizon — slice 1 (0.2.0)
 
-**Super Factory Manager ( SFM )** is a Minecraft mod. Adds a domain-specific language for logistics automation. This repository is a **port of it to [Horizon](https://github.com/horizon-rust/horizon)**, the Rust engine for Minecraft Java 26.3. It carries the complete source of the port plus the content files it ships, and installs as a single `.hmod` package.
+A clean-room Rust rewrite of [Super Factory Manager](https://github.com/TeamDman/SuperFactoryManager)
+4.34.0 for [Horizon](https://github.com/horizon-rust/horizon) (Minecraft 26.3).
+Not affiliated with TeamDman; the original mod's MPL-2.0 licence and copyright
+travel with this port (`LICENSE`, `LICENSE-NOTICE.md`).
 
-Upstream: [TeamDman/SuperFactoryManager](https://github.com/TeamDman/SuperFactoryManager) — licence **MPL-2.0**.
+One package: `sfm.hmod` carries the code (`src/`) and the content (`assets/`,
+`data/` — the Factory Manager, the inventory cable, their models, textures,
+recipes, loot tables, lang and creative tab).
 
-| | |
-|---|---|
-| Upstream mod | Super Factory Manager ( SFM ) ([source](https://github.com/TeamDman/SuperFactoryManager)) |
-| Ported to | Horizon 0b14f8a, Minecraft Java 26.3, mod API `0.2` |
-| Package | `sfm.hmod` (install it with the Horizon launcher) |
-| Licence | **MPL-2.0** — the upstream mod's licence; see [Licence and credit](#licence-and-credit) |
-
-## What this port implements
-
-### What works
+## What works
 
 - **The Factory Manager block** (`sfm:manager`) and the **inventory cable**
   (`sfm:cable`), carried from the jar's own models and textures.
@@ -26,43 +22,50 @@ Upstream: [TeamDman/SuperFactoryManager](https://github.com/TeamDman/SuperFactor
   (upstream's rule). One trigger moves whole stacks; what a target refuses goes
   back into the source in the same transaction, so nothing is lost.
 
-## Not yet ported
+## What it does not do yet
 
-- **No in-game re-run in this environment** (trap 15). The 0.1.0 runs in
-- **`Slot::can_take` is always `true` in the glue** (trap 7): a side's capability lists the slots it
-- **A labelled block whose block entity is another mod's** is read through its `ITEMS` capability,
-- **The manager's block entity type is now declared by the mod** (`sfm:factory_manager`), so the
+The program disk, the label gun, the manager's text editor and screen, the
+printing press, the fancy/tough/tunnelled cables and facades, buffers, the water
+tank, XP items, and every resource that is not an item (fluids, energy,
+chemicals, redstone triggers). `IF`, `EMPTY SLOTS IN`, slot ranges and
+`ROUND ROBIN` are not implemented; a program that uses them is stored but the
+manager reports it as invalid instead of running it. The full list is in
+`notes.md`.
 
-## Installing
+## Using it
 
-1. Install the [Horizon launcher](https://github.com/horizon-rust/horizon/releases) (0.2.70 or newer).
-2. Add `sfm.hmod` to the instance's mods.
-3. The package is pinned to a specific Horizon build; the launcher checks that pin.
+1. Place a **Factory Manager** and an **Inventory Cable** beside it; put a chest
+   against the cable.
+2. Put labels on the chests:
+   `/sfm label <manager x y z> <chest x y z> a` (and `b` on the second chest).
+3. Give the manager a program — `;` is a line break, because a chat line cannot
+   hold one:
+   `/sfm program <manager x y z> EVERY 20 TICKS DO;INPUT FROM a;OUTPUT TO b;END`
+4. `/sfm show <manager x y z>` reads its state (`no_program`, `running`,
+   `invalid`), its tick, its labels and what the last program tick moved.
 
-## Licence and credit
+Crafting: 16 cables from iron bars, a chest, black dye and a light weighted
+pressure plate; a manager from chests, cables and a repeater.
 
-Super Factory Manager ( SFM ) was created by its upstream authors; the code, models and assets in the original mod
-remain theirs and are used here under **MPL-2.0**. The Rust in this repository is a clean-room
-rewrite for Horizon, not a translation of the original source.
+## Building
 
-- `LICENSE` — the upstream licence text.
-- `LICENSE-NOTICE.md` — what this port carries and where it came from.
-- The upstream project: https://github.com/TeamDman/SuperFactoryManager
+The package is built by `cargo horizon-mod`, which fetches the pinned SDK into
+`.horizon/sdk/` on first use:
 
-## Technical details
-
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+rm -f Cargo.lock && cargo horizon-mod build      # -> target/horizon-mod/sfm.hmod
+cargo horizon-mod check sfm.hmod
+cargo horizon-mod fits sfm.hmod --build nightly
 ```
-horizon-mod.toml   package manifest (id, version, api, [native] pin)
-Cargo.toml         the crate; depends on `horizon-mod-api` from the fetched SDK
-src/               lib.rs (the one `impl Hooks`), runtime.rs (pure logic + tests), glue
-assets/ data/      the content the package ships
-tools/             content generators and the e2e scenario
-```
 
-- Build: `cargo horizon-mod build` (packages; it does not compile against the game).
-- Test: `cargo test`, `cargo clippy --all-targets -- -D warnings`.
-- In-game: `ports/tools/launcher-game.sh run sfm` in the campaign tree, or install the
-  `.hmod` and play; the harness scenario is `tools/e2e.sh`.
+Everything above runs inside a campaign build slot:
+`ports/tools/build-slot.sh run --job sfm-sdk --port ports/sfm --step build -- …`.
 
-This repository is generated from the campaign's port at `ports/sfm/`; the port's own
-`notes.md` is the full record (decisions, traps, evidence).
+`tools/e2e.sh` needs a game the launcher compiled this package into
+(`horizon-launcher native-build ports/sfm --instance <instance> --trust-native-code`),
+passed as `GAME=`; `SELFTEST=1` inverts one assertion so the run must fail.
+No `horizon-launcher` is installed in this environment, so no 0.2.0 in-game run
+is recorded (see `notes.md`).
